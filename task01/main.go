@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -15,11 +17,28 @@ type TaskStep struct {
 	Description string `json:"description"`
 	ToolNeeded  string `json:"tool_needed"`
 	DependsOn   []int  `json:"depends_on"`
-	Output      string `json:"output"`
+	Output      string `json:"expected_output"`
 }
 type TaskPlan struct {
 	Goal  string     `json:"goal"`
 	Steps []TaskStep `json:"steps"`
+}
+
+func cleanJSONContent(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```json") {
+		s = strings.TrimPrefix(s, "```json")
+		s = strings.TrimSpace(s)
+	}
+	if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+		s = strings.TrimSpace(s)
+	}
+	if strings.HasSuffix(s, "```") {
+		s = strings.TrimSuffix(s, "```")
+		s = strings.TrimSpace(s)
+	}
+	return s
 }
 
 func decomposeTask(task string) (*TaskPlan, error) {
@@ -55,7 +74,9 @@ func decomposeTask(task string) (*TaskPlan, error) {
 		panic(err)
 	}
 	var plan TaskPlan
-	content := completion.Choices[0].Message.Content
+	rawcontent := completion.Choices[0].Message.Content
+	content := cleanJSONContent(rawcontent)
+	fmt.Println(content)
 	if err := json.Unmarshal([]byte(content), &plan); err != nil {
 		return nil, fmt.Errorf(fmt.Sprintf("JSON unmarshal error: %v", err))
 	}
@@ -63,21 +84,21 @@ func decomposeTask(task string) (*TaskPlan, error) {
 }
 func main() {
 	task := "帮我查询一下南京的天气如何？"
-	taskplan, err := decomposeTask(task)
+	plan, err := decomposeTask(task)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
-	fmt.Println(taskplan.Goal)
-	for _, step := range taskplan.Steps {
+
+	fmt.Printf("任务目标：%s\n\n", plan.Goal)
+	for _, step := range plan.Steps {
 		deps := "无"
 		if len(step.DependsOn) > 0 {
 			depsJSON, _ := json.Marshal(step.DependsOn)
 			deps = string(depsJSON)
 		}
-		fmt.Println(step.StepNumber)
-		fmt.Println(step.Description)
-		fmt.Println(step.ToolNeeded)
-		fmt.Println(step.Output)
-		fmt.Println(deps)
+		fmt.Printf("步骤%d：%s\n", step.StepNumber, step.Description)
+		fmt.Printf("  工具：%s\n", step.ToolNeeded)
+		fmt.Printf("  依赖：%s\n", deps)
+		fmt.Printf("  预期输出：%s\n\n", step.Output)
 	}
 }
